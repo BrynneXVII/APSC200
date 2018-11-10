@@ -110,5 +110,4 @@ void getHeading(){
   #if DEBUG
   Serial.print("Temp: "); Serial.println(temp.temperature);
   #endif
-  ambientTemp = temp.temperature;
 }

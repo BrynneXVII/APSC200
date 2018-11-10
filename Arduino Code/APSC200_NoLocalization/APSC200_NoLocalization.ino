@@ -8,9 +8,8 @@
 #include "Wire.h"
 #include "math.h"
 #include <I2Cdev.h> //Sensing/Communication: Needed to have communication to the sensor module
-#include <Adafruit_Sensor.h> //Sensing: Needed to get the sensor data from the accel, gyro, compass and temp unit
+#include <Adafruit_Sensor.h> //Sensing: Needed to get the sensor data from the accel, gyro, compass unit
 #include <Adafruit_LSM9DS0.h> //Sensing: Needed to process the specific sensor's (LSM9DS0) raw data into units
-#include <IRremote.h>   // Localization: Needed to read received IR patterns
 
 
 
@@ -20,21 +19,6 @@
 #define DEBUG 1
 
 /////////////////////////////// Program Parameters ///////////////////////////////////////////////
-// Localization
-// Constants
-#define DATA_PADDING_VALUE 2147483648   // (0x80000000) added before transmission to ensure that the transmission is 32 bits
-#define NUM_BEACONS 5    // Number of beacons 
-#define ZERO_DIST_TIME_DELAY 22000  // The time delay of the system when taking a measurement from 0mm (it's a fudge factor)
-float ambientTemp = 17;    // [deg C] eventually will be determined real-time. Used to make time to distance measurements using the speed of sound more accurate
-
-// Localization Parameters
-#define US_NOMINAL_VOLTAGE_BOUND 20    // the unit is (probably) equivalent to 2mV. Any reading greater than this value on the US sensor is deemed to be an incoming US signal
-#define US_TIMEOUT_THRESHOLD 400000    // [usec] Number of microseconds waited for US receiption before timing out (previously #define US_TIMEOUT_THRESHOLD 250000)
-#define IR_TIMEOUT_THRESHOLD 650000    // [usec] Number of microseconds waited for IR receiption before timing out (previously 300000)
-#define BEACON_TIMEOUT_THRESHOLD 1500000    // [usec] Number of microseconds waited for beacon to ping before timing out
-#define MAX_POSSIBLE_TDOT 1500000     // [usec] The largest amount of time it would take for the RPi to send the first IR and then US signals
-#define MIN_POSSIBLE_TDOT 50000     // [usec] The shortest amount of time it would take for the RPi to send the first IR and then US signals
-#define MOVEMENT_DURATION 1000      // [msec] The amount of time that the robots will drive for before they stop (1000 for 1 second)
 
 
 /////////////////////////////// Define all needed pins ///////////////////////////////////////////////
@@ -50,29 +34,6 @@ float ambientTemp = 17;    // [deg C] eventually will be determined real-time. U
 #define irPin 11    // Infrared reception pin (for localization)
 #define usPin A0    // Ultrasonic reception pin (for localization)
 #define batPin A1   // battery level indicator pin. Would be hooked up to votlage divider from 9v barrel jack, but currently not implemented
-
-
-
-/////////////////////////////// Localization Variables ///////////////////////////////////////////////
-//Localization
-int voltRead;   // Ultrasonic pin voltage when a US signal is received
-#if DEBUG
-int voltReadMax;    // Max voltage read during US reception. Must be in debug mode to enable 
-#endif
-uint8_t beaconID;   // Unique ID. Takes value from 1-NUM_BEACONS (should be 5)
-bool usTimeoutFlag;   // Set to true if system times out before US reception
-bool irTimeoutFlag;   // Set to true if system times out before IR reception
-uint8_t beaconErrorCode = 8;  //contains 1 - 8 depending on localization error. Note that we initalize this to 8, the "no data received" errror code 
-
-// Timing/distnace variable declarations
-unsigned long irRecvTime;
-unsigned long usRecvTime;
-unsigned long beaconStartTime; 
-unsigned long tdot;   // Time difference of transmission 
-long tdoa;    // Time difference of arrival. Signed since it can be a (small) negative due to inaccuracies
-int beaconDist;    // [mm] Signed since it can be a (small) negative due to inaccuracies
-int beaconDistances[NUM_BEACONS];   // [mm] Array of distances to be sent back to MATLAB
-uint8_t beaconErrorCodes[NUM_BEACONS];    // Array of error codes associated with distance measurements. To be sent back to MATLAB
 
 
 /////////////////////////////// Sensor Variables ///////////////////////////////////////////////
@@ -107,8 +68,6 @@ char agentTag = 'S';
 char agentTagLower = 's';
 
 ////////////////////////////////////////////////////////// Object Declarations //////////////////////////////////////////////////////////
-IRrecv irrecv(irPin); // Set up the Infrared receiver object to get its data
-decode_results irData; // An object for the infrared data to be stored and decoded
 Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0(); //An object for the sensor module, to be accessed to get the data
 SoftSerialFix XBee(4,5); //The software created serial port to communicate through the Xbee
 
@@ -121,7 +80,6 @@ void setup(){
   #endif
   
   botSetup();
-  //localizationSetup();
   botCheck();
   
   #if DEBUG
@@ -136,13 +94,7 @@ void setup(){
 
 //////////////////////////////// Main Loop /////////////////////////////////////////////////////////
 void loop() {
-  /* Code that enables timing analysis for the loop
-  startLoop = endLoop;
-  endLoop = millis();
-  loopTime = (float) (endLoop - startLoop)/1000;
-  */
   botLoop();
-  //localization();
 }
 
 //////////////////////////////// Functions /////////////////////////////////////////////////////////
@@ -261,21 +213,9 @@ void botLoop()
     XBee.write(agentTagLower);
     sendSensors();
   }
-  else if (bot == 'P'){ //If it is a 'P', start the localization function, wait until the lower bot tag is sent then send the all of the x, y, theta, error codes, and distances back to MATLAB 
-    localization();
-    while(true){
-         bot = (XBee.available()) ? char(XBee.read()) : '0';
-         if (bot == agentTagLower){
-           XBee.write(agentTagLower);
-           sendAllData();
-           break;
-         }
-     }
-    while (XBee.available() && XBee.read());  //to clear the Xbee's buffer???
-  }
   else if (bot == '1'){ //If a 1 is received, take the stored wheel inputs and run them for the specified duration 
     sendInputs(leftInput, rightInput); 
-    delay(MOVEMENT_DURATION); //can adjust to determine how long the wheels will run for
+    //delay(MOVEMENT_DURATION); //can adjust to determine how long the wheels will run for
     stopMotors(both);
   }
   else if (bot == 'C'){ //If a C is sent, wheel calibration is going on so MOVEMENT_DURATION cannot be used
@@ -291,9 +231,6 @@ void botLoop()
           break;
         }
      }
-  }
-  else if (bot == 'B'){ //If a B is sent, send the battery level back to MATLAB
-    sendBatLevel();
   }
   else if (bot == 'R'){ // If an R is sent to the Xbee, reset the Arduino (restart the program)
     asm volatile ("  jmp 0");  
@@ -405,25 +342,10 @@ void sendAllData(){
   byte * thetaBytes = (byte *) &heading; //&theta;
   byte * xBytes = (byte *) &xPosition;
   byte * yBytes = (byte *) &yPosition;
-  byte * distBytes = (byte *) &beaconDistances;
-  byte * errorBytes = (byte *) &beaconErrorCodes;
-  Serial.print("Beacon Distances"); Serial.print(beaconDistances[0]);Serial.print(beaconDistances[1]);Serial.print(beaconDistances[2]);Serial.print(beaconDistances[3]);Serial.println(beaconDistances[4]);
-  //Serial.print("Error Codes"); Serial.println(beaconErrorCodes);
   
   XBee.write(xBytes,4);
   XBee.write(yBytes,4);
   XBee.write(thetaBytes,4);
-  XBee.write(distBytes,10);
-  XBee.write(errorBytes,5);
-}
-
-//sendBatLevel reads the battery level pin and gives an approximate level (from 0 to 1024?)
-void sendBatLevel()
-{
-  uint8_t batLevel = analogRead(batPin);
-  byte * batLevelBytes = (byte *) &batLevel;
-
-  XBee.write(batLevelBytes,1);
 }
 
 

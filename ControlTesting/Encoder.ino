@@ -1,17 +1,15 @@
-//Left_Encoder_Ticks is a interrupt service routine that updates the encoder
+/////////////////////////////////// ENCODER FUNCTIONS //////////////////////////////////////////
 void Left_Encoder_Ticks(){ // runs in the background updating left encoder value. Never needs to be called
-  leftEncoder = (leftInput >= 0) ? leftEncoder+1 : leftEncoder-1;
+  lCount = (leftWheel >= 0) ? lCount+1 : lCount-1;
   lCount_abs++;
-}
 
-//Right_Encoder_Ticks is a interrupt service routine that updates the encoder
+  leftEncoder = lCount;
+}
 void Right_Encoder_Ticks(){ // runs in the background updating right encoder value. Never needs to be called
-  rightEncoder = (rightInput >= 0) ? rightEncoder+1 : rightEncoder-1;
+  rCount = (rightWheel >= 0) ? rCount+1 : rCount-1;
   rCount_abs++;
+  rightEncoder = rCount;
 }
-
-//PositionCalc is a function that uses the system properties and dynamic equations to estimate the position of the robot (dead reckoning)
-//this estimation uses the encoders and the angle of the robot 
 void PositionCalc(){
   leftRads = (leftEncoder - oldLeftEncoder)*2*PI/192;
   rightRads = (rightEncoder - oldRightEncoder)*2*PI/192;
@@ -20,6 +18,4 @@ void PositionCalc(){
   oldLeftEncoder = leftEncoder;
   oldRightEncoder = rightEncoder;
 }
-
-
 

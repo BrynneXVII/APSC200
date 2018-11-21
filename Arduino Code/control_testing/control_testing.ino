@@ -73,6 +73,9 @@ SoftSerialFix XBee(4,5); //The software created serial port to communicate throu
 
 // Control parameters
 #define ts 0.01   //time step
+#define locationErrorBound 0.2    // Once the robot gets within this value of the desired point, it then uses the next point
+
+#define maxLocationIndex 2
 
 
 // Vehicle parameters
@@ -80,6 +83,13 @@ int omega_max = 12;
 int omega_zero = 100;
 int omega_r,omega_l;
 
+int locationIndex;
+
+int prevTimeStamp;
+
+float x_d[] = {0,1};
+float y_d[] = {0,1};
+float t_d[] = {0,10};
 
 // Control parameters
 
@@ -104,18 +114,48 @@ void setup()
 
 void loop()
 {
-  float x_d = 1;
-  float y_d = 0;
-  getMotorInputs(1,0,1,0,5);
-  sendInputs(omega_l,omega_r);
-  delay(5000);
-  sendInputs(0,0);
 
+  
+  
+  if((millis()-prevTimeStamp)/1000>t_d[locationIndex+1]-t_d[locationIndex]){
+    locationIndex++;
+    prevTimeStamp = millis();
+    
+    if(locationIndex == maxLocationIndex){   // If we have no more points to go to
+      Serial.println(F("No more points to travel to"));
+      sendInputs(0,0);
+      while(1);
+    }
+    else{
+      getMotorInputs(x_d[locationIndex],0,y_d[locationIndex],0,t_d[locationIndex]);
+      Serial.print(F("Going to new point: #"));
+      Serial.print(locationIndex);
+      Serial.print(F(" at location ("));
+      Serial.print(x_d[locationIndex]);
+      Serial.print(F(","));
+      Serial.print(y_d[locationIndex]);
+      Serial.print(F(") at time "));
+      Serial.println(t_d[locationIndex]);
+      Serial.print("Right motor input: ");
+      Serial.println(omega_r);
+      Serial.print("Left motor input: ");
+      Serial.println(omega_l);
+      Serial.println();
+      sendInputs(omega_l,omega_r);
+    }
+  }
   PositionCalc();
-
-
-while(1);
+  Serial.print("Current position: (");
+  Serial.print(xPosition);
+  Serial.print(F(","));
+  Serial.print(yPosition);
+  Serial.println(F(")"));
 }
+
+float norm(float x, float y){
+  return sqrt(pow(x,2)+pow(y,2));
+}
+
 
 void getMotorInputs(float x_2, float x_1, float y_2, float y_1, float timeStep)
 {
@@ -123,7 +163,7 @@ void getMotorInputs(float x_2, float x_1, float y_2, float y_1, float timeStep)
   float v_y = (y_2 - y_1)/timeStep;    // Desired velocity in y
   float v = sqrt(pow(v_x,2) + pow(v_y,2));
   
-  float omega = atan2(v_y,v_x);
+  float omega = atan2((y_2 - y_1),(x_2 - x_1));
 
   omega_r = constrainMotorInput((v+R*omega)/r);
   omega_l = constrainMotorInput((v-R*omega)/r);
@@ -133,7 +173,7 @@ void getMotorInputs(float x_2, float x_1, float y_2, float y_1, float timeStep)
 int constrainMotorInput(float omega_cntrl)
 {
   if(omega_cntrl>omega_max) omega_cntrl = omega_max;
-  return ceil(omega_cntrl/omega_max*(255-omega_zero) + sign(omega_cntrl)*omega_zero);   // 
+  return ceil(omega_cntrl/omega_max*(255-omega_zero) + sign(omega_cntrl)*omega_zero);
 }
 
 int sign(float x)
